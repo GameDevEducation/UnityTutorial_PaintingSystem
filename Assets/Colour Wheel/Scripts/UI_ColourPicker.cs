@@ -30,11 +30,12 @@ public class UI_ColourPicker : MonoBehaviour
         
     }
 
-    public void SetNewColour(Color InNewColour)
+    public void SetNewColour(Color InNewColour, bool InAllowNotifications = true)
     {
         CurrentColour = InNewColour;
+        Color.RGBToHSV(CurrentColour, out CurrentHue, out CurrentSaturation, out CurrentValue);
 
-        ColourUpdated();
+        ColourUpdated(InAllowNotifications);
     }
 
     public void OnColourWheelClicked(float InNewHue, float InNewSaturation)
@@ -57,7 +58,7 @@ public class UI_ColourPicker : MonoBehaviour
         ColourUpdated();
     }
 
-    void ColourUpdated()
+    void ColourUpdated(bool InAllowNotifications = true)
     {
         CurrentColour = Color.HSVToRGB(CurrentHue, CurrentSaturation, CurrentValue);
 
@@ -68,6 +69,7 @@ public class UI_ColourPicker : MonoBehaviour
 
         ColourWheel.SetCurrentColour(CurrentColour, CurrentHue, CurrentSaturation, CurrentValue);
 
-        OnColourChanged.Invoke(CurrentColour);
+        if (InAllowNotifications)
+            OnColourChanged.Invoke(CurrentColour);
     }
 }

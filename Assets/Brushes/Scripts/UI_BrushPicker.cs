@@ -23,7 +23,7 @@ public class UI_BrushPicker : MonoBehaviour
             BrushUIElements.Add(NewBrushUILogic);
 
             NewBrushUILogic.BindToBrush(Brush);
-            NewBrushUILogic.OnBrushSelected.AddListener(OnBrushSelectedInternal);
+            NewBrushUILogic.OnBrushSelected.AddListener(OnBrushSelectedWithUI);
         }
 
         if (Brushes.Count > 0)
@@ -36,13 +36,24 @@ public class UI_BrushPicker : MonoBehaviour
         
     }
 
-    void OnBrushSelectedInternal(BaseBrush InBrush)
+    public void SetNewBrush(BaseBrush InBrush, bool InAllowNotifications = true)
+    {
+        OnBrushSelectedInternal(InBrush, InAllowNotifications);
+    }
+
+    void OnBrushSelectedWithUI(BaseBrush InBrush)
+    {
+        OnBrushSelectedInternal(InBrush, true);
+    }
+
+    void OnBrushSelectedInternal(BaseBrush InBrush, bool InAllowNotifications = true)
     {
         foreach(var BrushUI in BrushUIElements)
         {
             BrushUI.SetIsSelected(InBrush);
         }
 
-        OnBrushChanged.Invoke(InBrush);
+        if (InAllowNotifications)
+            OnBrushChanged.Invoke(InBrush);
     }
 }

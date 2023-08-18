@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Events;
 
 public class PaintableCanvas : MonoBehaviour
 {
@@ -19,6 +20,16 @@ public class PaintableCanvas : MonoBehaviour
     [SerializeField] float BrushScale = 0.25f;
     [SerializeField] float BrushWeight = 0.25f;
 
+    [SerializeField] UnityEvent<Color, bool> OnSyncUIWithCanvasColour = new();
+    [SerializeField] UnityEvent<BaseBrush, bool> OnSyncUIWithBrush = new();
+    [SerializeField] UnityEvent<bool> OnSyncUndoAvailable = new();
+    [SerializeField] UnityEvent<bool> OnSyncRedoAvailable = new();
+
+    List<BasePaintingCommand> CommandStack = new();
+    List<BasePaintingCommand> RedoList = new();
+
+    BasePaintingCommand MostRecentCommand => CommandStack[^1];
+
     EPaintingMode PaintingMode_PrimaryMouse = EPaintingMode.Draw;
 
     int CanvasWidthInPixels;
@@ -27,7 +38,7 @@ public class PaintableCanvas : MonoBehaviour
     Texture2D PaintableTexture;
 
     BaseBrush ActiveBrush;
-    Color ActiveColour = Color.magenta;
+    Color? ActiveColour;
 
     // Start is called before the first frame update
     void Start()
@@ -36,16 +47,9 @@ public class PaintableCanvas : MonoBehaviour
         CanvasHeightInPixels = Mathf.CeilToInt(CanvasMeshFilter.mesh.bounds.size.y * CanvasMeshFilter.transform.localScale.y * PixelsPerMetre);
 
         PaintableTexture = new Texture2D(CanvasWidthInPixels, CanvasHeightInPixels, TextureFormat.ARGB32, false);
-        for (int Y = 0; Y < CanvasHeightInPixels; Y++)
-        {
-            for (int X = 0; X < CanvasWidthInPixels; X++) 
-            {
-                PaintableTexture.SetPixel(X, Y, CanvasDefaultColour);
-            }
-        }
-        PaintableTexture.Apply();
-
         CanvasMeshRenderer.material.mainTexture = PaintableTexture;
+
+        AppendCommand(new PaintingCommand_ClearToColour(CanvasDefaultColour, false));
     }
 
     // Update is called once per frame
@@ -66,53 +70,157 @@ public class PaintableCanvas : MonoBehaviour
         Ray DrawingRay = Camera.main.ScreenPointToRay(Input.mousePosition);
         if (Physics.RaycastNonAlloc(DrawingRay, HitResults, RaycastDistance, PaintableCanvasLayerMask) > 0)
         {
-            PerformDrawingWith(ActiveBrush, ActiveColour, HitResults[0].textureCoord);
-        }
-    }
-
-    void PerformDrawingWith(BaseBrush ActiveBrush, Color ActiveColour, Vector2 LocationUV)
-    {
-        int DrawingOriginX = Mathf.RoundToInt(LocationUV.x * CanvasWidthInPixels);
-        int DrawingOriginY = Mathf.RoundToInt(LocationUV.y * CanvasHeightInPixels);
-
-        int ScaledBrushWidth  = Mathf.RoundToInt(ActiveBrush.BrushTexture.width * BrushScale);
-        int ScaledBrushHeight = Mathf.RoundToInt(ActiveBrush.BrushTexture.height * BrushScale);
-
-        for (int BrushY = 0; BrushY < ScaledBrushHeight; BrushY++) 
-        {
-            int PixelY = DrawingOriginY + BrushY - (ScaledBrushHeight / 2);
-            if (PixelY < 0 || PixelY >= CanvasHeightInPixels)
-                continue;
-
-            float BrushUV_Y = (float)BrushY / (float)ScaledBrushHeight;
-
-            for (int BrushX = 0; BrushX < ScaledBrushWidth; BrushX++)
+            if (MostRecentCommand.CanExtend() && (MostRecentCommand is PaintingCommand_Draw))
             {
-                int PixelX = DrawingOriginX + BrushX - (ScaledBrushWidth / 2);
-                if (PixelX < 0 || PixelX >= CanvasWidthInPixels)
-                    continue;
+                var DrawCommand = MostRecentCommand as PaintingCommand_Draw;
+                DrawCommand.Extend(HitResults[0].textureCoord);
 
-                // calculate the brush UV to lookup
-                float BrushUV_X = (float) BrushX / (float) ScaledBrushWidth;
-
-                Color BrushPixel = ActiveBrush.BrushTexture.GetPixelBilinear(BrushUV_X, BrushUV_Y);
-                Color CanvasPixel = PaintableTexture.GetPixel(PixelX, PixelY);
-
-                CanvasPixel = ActiveBrush.Apply(CanvasPixel, BrushPixel, ActiveColour, BrushWeight * Time.deltaTime);
-                PaintableTexture.SetPixel(PixelX, PixelY, CanvasPixel);
+                ExecuteCommandInternal_Draw(DrawCommand, true);
+            }
+            else
+            {
+                AppendCommand(new PaintingCommand_Draw(HitResults[0].textureCoord));
             }
         }
-
-        PaintableTexture.Apply();
     }
 
     public void SelectBrush(BaseBrush InBrush)
     {
-        ActiveBrush = InBrush;
+        AppendCommand(new PaintingCommand_SetBrush(InBrush, ActiveBrush != null));
     }
 
     public void SetColour(Color InColour)
     {
-        ActiveColour = InColour;
+        AppendCommand(new PaintingCommand_SetColour(InColour, ActiveColour != null));
+    }
+
+    public void UndoLastCommand()
+    {
+        if (!MostRecentCommand.IsUndoable)
+            return;
+
+        var RemovedCommand = MostRecentCommand;
+        CommandStack.RemoveAt(CommandStack.Count - 1);
+        RedoList.Add(RemovedCommand);
+
+        OnSyncUndoAvailable.Invoke(MostRecentCommand.IsUndoable);
+        OnSyncRedoAvailable.Invoke(true);
+
+        if (RemovedCommand.UndoBehaviour == BasePaintingCommand.EUndoBehaviour.ReplayCommandList)
+        {
+            ReplayAllCommands();
+        }
+        else if (RemovedCommand.UndoBehaviour == BasePaintingCommand.EUndoBehaviour.FindLast)
+        {
+            for (int Index = CommandStack.Count - 1; Index >= 0; Index--) 
+            { 
+                var Command = CommandStack[Index];
+
+                if (Command.GetType() == RemovedCommand.GetType())
+                {
+                    ExecuteCommand(Command, true);
+                    return;
+                }
+            }
+        }
+    }
+
+    public void RedoLastCommand()
+    {
+        if (RedoList.Count == 0)
+            return;
+
+        var CommandToRedo = RedoList[^1];
+        RedoList.RemoveAt(RedoList.Count - 1);
+
+        ExecuteCommand(CommandToRedo, true);
+        CommandStack.Add(CommandToRedo);
+
+        OnSyncUndoAvailable.Invoke(MostRecentCommand.IsUndoable);
+        OnSyncRedoAvailable.Invoke(RedoList.Count > 0);
+    }
+
+    void AppendCommand(BasePaintingCommand InCommand)
+    {
+        RedoList.Clear();
+        OnSyncRedoAvailable.Invoke(false);
+
+        ExecuteCommand(InCommand, false);
+        CommandStack.Add(InCommand);
+
+        OnSyncUndoAvailable.Invoke(MostRecentCommand.IsUndoable);
+    }
+
+    void ReplayAllCommands()
+    {
+        foreach(var Command in CommandStack) 
+        {
+            ExecuteCommand(Command, true);
+        }
+    }
+
+    void ExecuteCommand(BasePaintingCommand InCommand, bool IsUndoOrReplay)
+    {
+        if (InCommand is PaintingCommand_ClearToColour)
+        {
+            (InCommand as PaintingCommand_ClearToColour).Execute(PaintableTexture, CanvasWidthInPixels, CanvasHeightInPixels);
+        }
+        else if (InCommand is PaintingCommand_SetColour)
+        {
+            (InCommand as PaintingCommand_SetColour).Execute(ref ActiveColour);
+
+            if (IsUndoOrReplay)
+                OnSyncUIWithCanvasColour.Invoke(ActiveColour.Value, false);
+        }
+        else if (InCommand is PaintingCommand_SetBrush)
+        {
+            (InCommand as PaintingCommand_SetBrush).Execute(ref ActiveBrush);
+
+            if (IsUndoOrReplay)
+                OnSyncUIWithBrush.Invoke(ActiveBrush, false);
+        }
+        else if (InCommand is PaintingCommand_Draw)
+        {
+            ExecuteCommandInternal_Draw((InCommand as PaintingCommand_Draw));
+        }
+    }
+
+    void ExecuteCommandInternal_Draw(PaintingCommand_Draw InDrawCommand, bool InIsExtension = false)
+    {
+        InDrawCommand.Execute(InIsExtension, (Vector2 InLocation) =>
+        {
+            int DrawingOriginX = Mathf.RoundToInt(InLocation.x * CanvasWidthInPixels);
+            int DrawingOriginY = Mathf.RoundToInt(InLocation.y * CanvasHeightInPixels);
+
+            int ScaledBrushWidth = Mathf.RoundToInt(ActiveBrush.BrushTexture.width * BrushScale);
+            int ScaledBrushHeight = Mathf.RoundToInt(ActiveBrush.BrushTexture.height * BrushScale);
+
+            for (int BrushY = 0; BrushY < ScaledBrushHeight; BrushY++)
+            {
+                int PixelY = DrawingOriginY + BrushY - (ScaledBrushHeight / 2);
+                if (PixelY < 0 || PixelY >= CanvasHeightInPixels)
+                    continue;
+
+                float BrushUV_Y = (float)BrushY / (float)ScaledBrushHeight;
+
+                for (int BrushX = 0; BrushX < ScaledBrushWidth; BrushX++)
+                {
+                    int PixelX = DrawingOriginX + BrushX - (ScaledBrushWidth / 2);
+                    if (PixelX < 0 || PixelX >= CanvasWidthInPixels)
+                        continue;
+
+                    // calculate the brush UV to lookup
+                    float BrushUV_X = (float)BrushX / (float)ScaledBrushWidth;
+
+                    Color BrushPixel = ActiveBrush.BrushTexture.GetPixelBilinear(BrushUV_X, BrushUV_Y);
+                    Color CanvasPixel = PaintableTexture.GetPixel(PixelX, PixelY);
+
+                    CanvasPixel = ActiveBrush.Apply(CanvasPixel, BrushPixel, ActiveColour.Value, BrushWeight * Time.deltaTime);
+                    PaintableTexture.SetPixel(PixelX, PixelY, CanvasPixel);
+                }
+            }
+        });      
+
+        PaintableTexture.Apply();
     }
 }
