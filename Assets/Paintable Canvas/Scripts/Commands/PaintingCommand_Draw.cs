@@ -5,6 +5,7 @@ using UnityEngine;
 public class PaintingCommand_Draw : BasePaintingCommand
 {
     List<Vector2> Points = new();
+    bool IsAllowedToExtend = true;
 
     public PaintingCommand_Draw(Vector2 InUV) :
         base(true) // always undoable
@@ -21,7 +22,12 @@ public class PaintingCommand_Draw : BasePaintingCommand
 
     public override bool CanExtend()
     {
-        return true;
+        return IsAllowedToExtend;
+    }
+
+    public override void CloseCommand()
+    {
+        IsAllowedToExtend = false;
     }
 
     public void Execute(bool InIsExtension, System.Action<Vector2> InDrawingFn)

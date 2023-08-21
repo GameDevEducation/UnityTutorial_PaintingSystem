@@ -3,6 +3,48 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 
+public class Texture2DWrapper
+{
+    Texture2D LinkedTexture;
+    int LinkedTextureWidth;
+
+    public bool IsDirty { get; private set; } = true;
+
+    Color[] PixelData;
+
+    public Texture2DWrapper(Texture2D InTexture)
+    {
+        LinkedTexture = InTexture;
+        LinkedTextureWidth = LinkedTexture.width;
+
+        PixelData = LinkedTexture.GetPixels();
+    }
+
+    public void SetPixel(int InX, int InY, Color InColour)
+    {
+        PixelData[InX + (InY * LinkedTextureWidth)] = InColour;
+
+        IsDirty = true;
+    }
+
+    public Color GetPixel(int InX, int InY) 
+    {
+        return PixelData[InX + (InY * LinkedTextureWidth)];
+    }
+
+    public void Apply()
+    {
+        if (IsDirty)
+        {
+            IsDirty = false;
+
+            LinkedTexture.SetPixels(PixelData);
+
+            LinkedTexture.Apply();
+        }
+    }
+}
+
 public class PaintableCanvas : MonoBehaviour
 {
     enum EPaintingMode
@@ -22,6 +64,7 @@ public class PaintableCanvas : MonoBehaviour
 
     [SerializeField] UnityEvent<Color, bool> OnSyncUIWithCanvasColour = new();
     [SerializeField] UnityEvent<BaseBrush, bool> OnSyncUIWithBrush = new();
+    [SerializeField] UnityEvent<BaseBrush.EMode, bool> OnSyncUIWithBrushMode = new();
     [SerializeField] UnityEvent<bool> OnSyncUndoAvailable = new();
     [SerializeField] UnityEvent<bool> OnSyncRedoAvailable = new();
 
@@ -35,10 +78,11 @@ public class PaintableCanvas : MonoBehaviour
     int CanvasWidthInPixels;
     int CanvasHeightInPixels;
 
-    Texture2D PaintableTexture;
+    Texture2DWrapper PaintableTexture;
 
     BaseBrush ActiveBrush;
     Color? ActiveColour;
+    BaseBrush.EMode? ActiveBrushMode;
 
     // Start is called before the first frame update
     void Start()
@@ -46,8 +90,9 @@ public class PaintableCanvas : MonoBehaviour
         CanvasWidthInPixels = Mathf.CeilToInt(CanvasMeshFilter.mesh.bounds.size.x * CanvasMeshFilter.transform.localScale.x * PixelsPerMetre);
         CanvasHeightInPixels = Mathf.CeilToInt(CanvasMeshFilter.mesh.bounds.size.y * CanvasMeshFilter.transform.localScale.y * PixelsPerMetre);
 
-        PaintableTexture = new Texture2D(CanvasWidthInPixels, CanvasHeightInPixels, TextureFormat.ARGB32, false);
-        CanvasMeshRenderer.material.mainTexture = PaintableTexture;
+        Texture2D LocalTexture = new Texture2D(CanvasWidthInPixels, CanvasHeightInPixels, TextureFormat.ARGB32, false);
+        CanvasMeshRenderer.material.mainTexture = LocalTexture;
+        PaintableTexture = new Texture2DWrapper(LocalTexture);
 
         AppendCommand(new PaintingCommand_ClearToColour(CanvasDefaultColour, false));
     }
@@ -57,11 +102,18 @@ public class PaintableCanvas : MonoBehaviour
     {
         if (ActiveBrush != null)
         {
-            if (PaintingMode_PrimaryMouse == EPaintingMode.Draw && Input.GetMouseButton(0))
+            if (PaintingMode_PrimaryMouse == EPaintingMode.Draw)
             {
-                Update_PerformDrawing(PaintingMode_PrimaryMouse);
+                if (Input.GetMouseButton(0))
+                    Update_PerformDrawing(PaintingMode_PrimaryMouse);
+                else if (MostRecentCommand.CanExtend())
+                    MostRecentCommand.CloseCommand();
             }
+
         }
+
+        if (PaintableTexture.IsDirty)
+            PaintableTexture.Apply();
     }
 
     RaycastHit[] HitResults = new RaycastHit[1];
@@ -87,6 +139,11 @@ public class PaintableCanvas : MonoBehaviour
     public void SelectBrush(BaseBrush InBrush)
     {
         AppendCommand(new PaintingCommand_SetBrush(InBrush, ActiveBrush != null));
+    }
+
+    public void SelectBrushMode(BaseBrush.EMode InBrushMode)
+    {
+        AppendCommand(new PaintingCommand_SetBrushMode(InBrushMode, ActiveBrushMode != null));
     }
 
     public void SetColour(Color InColour)
@@ -178,10 +235,22 @@ public class PaintableCanvas : MonoBehaviour
 
             if (IsUndoOrReplay)
                 OnSyncUIWithBrush.Invoke(ActiveBrush, false);
+
+            int ScaledBrushWidth = Mathf.RoundToInt(ActiveBrush.BrushTexture.width * BrushScale);
+            int ScaledBrushHeight = Mathf.RoundToInt(ActiveBrush.BrushTexture.height * BrushScale);
+
+            ActiveBrush.SetScale(ScaledBrushWidth, ScaledBrushHeight);
         }
         else if (InCommand is PaintingCommand_Draw)
         {
             ExecuteCommandInternal_Draw((InCommand as PaintingCommand_Draw));
+        }
+        else if (InCommand is PaintingCommand_SetBrushMode)
+        {
+            (InCommand as PaintingCommand_SetBrushMode).Execute(ref ActiveBrushMode);
+
+            if (IsUndoOrReplay)
+                OnSyncUIWithBrushMode.Invoke(ActiveBrushMode.Value, false);
         }
     }
 
@@ -192,35 +261,25 @@ public class PaintableCanvas : MonoBehaviour
             int DrawingOriginX = Mathf.RoundToInt(InLocation.x * CanvasWidthInPixels);
             int DrawingOriginY = Mathf.RoundToInt(InLocation.y * CanvasHeightInPixels);
 
-            int ScaledBrushWidth = Mathf.RoundToInt(ActiveBrush.BrushTexture.width * BrushScale);
-            int ScaledBrushHeight = Mathf.RoundToInt(ActiveBrush.BrushTexture.height * BrushScale);
-
-            for (int BrushY = 0; BrushY < ScaledBrushHeight; BrushY++)
+            for (int BrushY = 0; BrushY < ActiveBrush.Height; BrushY++)
             {
-                int PixelY = DrawingOriginY + BrushY - (ScaledBrushHeight / 2);
+                int PixelY = DrawingOriginY + BrushY - (ActiveBrush.Height / 2);
                 if (PixelY < 0 || PixelY >= CanvasHeightInPixels)
                     continue;
 
-                float BrushUV_Y = (float)BrushY / (float)ScaledBrushHeight;
-
-                for (int BrushX = 0; BrushX < ScaledBrushWidth; BrushX++)
+                for (int BrushX = 0; BrushX < ActiveBrush.Width; BrushX++)
                 {
-                    int PixelX = DrawingOriginX + BrushX - (ScaledBrushWidth / 2);
+                    int PixelX = DrawingOriginX + BrushX - (ActiveBrush.Width / 2);
                     if (PixelX < 0 || PixelX >= CanvasWidthInPixels)
                         continue;
 
-                    // calculate the brush UV to lookup
-                    float BrushUV_X = (float)BrushX / (float)ScaledBrushWidth;
-
-                    Color BrushPixel = ActiveBrush.BrushTexture.GetPixelBilinear(BrushUV_X, BrushUV_Y);
+                    Color BrushPixel = ActiveBrush.GetPixel(BrushX, BrushY);
                     Color CanvasPixel = PaintableTexture.GetPixel(PixelX, PixelY);
 
-                    CanvasPixel = ActiveBrush.Apply(CanvasPixel, BrushPixel, ActiveColour.Value, BrushWeight * Time.deltaTime);
+                    CanvasPixel = ActiveBrush.Apply(CanvasPixel, BrushPixel, ActiveColour.Value, BrushWeight * Time.deltaTime, ActiveBrushMode.Value);
                     PaintableTexture.SetPixel(PixelX, PixelY, CanvasPixel);
                 }
             }
         });      
-
-        PaintableTexture.Apply();
     }
 }

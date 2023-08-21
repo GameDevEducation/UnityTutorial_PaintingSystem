@@ -22,4 +22,8 @@ public class BasePaintingCommand
     {
         return false;
     }
+
+    public virtual void CloseCommand()
+    {
+    }
 }

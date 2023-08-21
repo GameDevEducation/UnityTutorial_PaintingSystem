@@ -12,7 +12,7 @@ public class PaintingCommand_ClearToColour : BasePaintingCommand
         ColourToClearTo = InColour;
     }
 
-    public void Execute(Texture2D InTexture, int InWidth, int InHeight)
+    public void Execute(Texture2DWrapper InTexture, int InWidth, int InHeight)
     {
         for (int Y = 0; Y < InHeight; Y++)
         {
@@ -21,6 +21,5 @@ public class PaintingCommand_ClearToColour : BasePaintingCommand
                 InTexture.SetPixel(X, Y, ColourToClearTo);
             }
         }
-        InTexture.Apply();
     }
 }
