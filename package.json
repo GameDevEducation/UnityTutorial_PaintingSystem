@@ -1,6 +1,6 @@
 {
   "name": "com.gamedeveducation.paintingsystem",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "displayName": "Painting System",
   "description": "Brush based in-world painting system with colour picker and undo/redo support",
   "unity": "2022.3",
