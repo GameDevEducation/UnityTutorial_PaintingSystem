@@ -252,6 +252,8 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+  SelectedColour: {r: 0.9991898, g: 1, b: 0.42138356, a: 1}
+  NotSelectedColour: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1 &677465119152240349
 GameObject:
   m_ObjectHideFlags: 0
@@ -625,6 +627,8 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+  SelectedColour: {r: 0.9991898, g: 1, b: 0.42138356, a: 1}
+  NotSelectedColour: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1 &2940378368640465474
 GameObject:
   m_ObjectHideFlags: 0
@@ -1171,6 +1175,11 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+  BrushModeUIElements:
+  - {fileID: 6169911671646835824}
+  - {fileID: 5385398641717451695}
+  - {fileID: 2843705156172671522}
+  - {fileID: 5562415061746355557}
 --- !u!1 &5342999573307232844
 GameObject:
   m_ObjectHideFlags: 0
@@ -1792,6 +1801,8 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+  SelectedColour: {r: 0.9991898, g: 1, b: 0.42138356, a: 1}
+  NotSelectedColour: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1 &8686822608827092321
 GameObject:
   m_ObjectHideFlags: 0
@@ -2088,3 +2099,5 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
+  SelectedColour: {r: 0.9991898, g: 1, b: 0.42138356, a: 1}
+  NotSelectedColour: {r: 1, g: 1, b: 1, a: 1}

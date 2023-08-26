@@ -1560,14 +1560,26 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ColourWheel: {fileID: 4518236452667318232}
-  DefaultColour: {r: 1, g: 1, b: 1, a: 1}
+  DefaultColour: {r: 1, g: 0, b: 0, a: 1}
   ColourPickerComponents:
   - {fileID: 6289883596315992528}
   - {fileID: 3391084098223157715}
   - {fileID: 5754617220583121889}
   OnColourChanged:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 0}
+        m_TargetAssemblyTypeName: PaintableCanvas, Assembly-CSharp
+        m_MethodName: SetColour
+        m_Mode: 0
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!1 &5526091936258725160
 GameObject:
   m_ObjectHideFlags: 0
